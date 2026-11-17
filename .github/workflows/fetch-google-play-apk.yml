@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   fetch:
-    runs-on: ubuntu-latest
+    runs-on: macos-15
     timeout-minutes: 20
     steps:
       - name: Checkout repository
@@ -32,16 +32,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p google-play
-          timeout 180s goopdl latest net.toyknight.aeii.android > google-play/latest-query.txt 2>&1 || echo "Latest discovery did not complete; direct Play download is authoritative for the selected device." >> google-play/latest-query.txt
-          timeout 600s goopdl download net.toyknight.aeii.android --splits --extras -o google-play 2>&1 | tee google-play/download-log.txt
+          goopdl latest net.toyknight.aeii.android > google-play/latest-query.txt 2>&1 || echo "Latest discovery did not complete; direct Play download is authoritative for the selected device." >> google-play/latest-query.txt
+          goopdl download net.toyknight.aeii.android --splits --extras -o google-play 2>&1 | tee google-play/download-log.txt
           find google-play -type f -name '*.apk' -print | grep -q . || { echo "Google Play did not return an APK"; exit 1; }
 
       - name: Verify package identity, signer and SHA-256
         shell: bash
         run: |
           set -euo pipefail
-          find google-play -type f \( -iname '*.apk' -o -iname '*.obb' \) -print0 | sort -z | xargs -0 sha256sum > google-play/CHECKSUMS.sha256
-          AAPT="$(find "${ANDROID_HOME}/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          find google-play -type f \( -iname '*.apk' -o -iname '*.obb' \) -print0 | xargs -0 shasum -a 256 > google-play/CHECKSUMS.sha256
+          AAPT="$(find "${ANDROID_HOME}/build-tools" -type f -name aapt | sort | tail -n 1)"
           APKSIGNER="$(find "${ANDROID_HOME}/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           : > google-play/PACKAGE-IDENTITY.txt
           : > google-play/SIGNATURES.txt
@@ -51,7 +51,7 @@ jobs:
               printf '\n== %s ==\n' "$apk"
               "$AAPT" dump badging "$apk" | grep '^package:' | head -n 1
             } >> google-play/PACKAGE-IDENTITY.txt
-            if "$AAPT" dump badging "$apk" | grep -q "package: name='net.toyknight.aeii.android'"; then
+            if "$AAPT" dump badging "$apk" | grep -Eq "^package: name='net.toyknight.aeii.android' versionCode='(5210|[6-9][0-9]{3}|5[3-9][0-9]{2}|52[1-9][0-9]|521[1-9]|[1-9][0-9]{4,})'"; then
               found=1
             fi
             {
@@ -59,7 +59,7 @@ jobs:
               "$APKSIGNER" verify --print-certs "$apk"
             } >> google-play/SIGNATURES.txt
           done < <(find google-play -type f -name '*.apk' -print0)
-          test "$found" -eq 1 || { echo "Unexpected package ID"; exit 1; }
+          test "$found" -eq 1 || { echo "Incorrect package ID or Google Play version is below 5.2.1 (versionCode 5210)"; exit 1; }
           cat google-play/PACKAGE-IDENTITY.txt
           cat google-play/CHECKSUMS.sha256
 
@@ -76,7 +76,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add google-play
           if ! git diff --cached --quiet; then
-            git commit -m "Add verified Google Play AER Android APK"
+            git commit -m "Add verified current Google Play AER Android APK"
             git push origin HEAD:main
           else
             echo "No changes"
