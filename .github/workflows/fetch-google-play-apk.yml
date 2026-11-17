@@ -50,7 +50,10 @@ jobs:
           echo 'Source: Google Play' > google-play/SOURCE.txt
           echo 'Package: net.toyknight.aeii.android' >> google-play/SOURCE.txt
           echo 'Retrieved at (UTC):' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> google-play/SOURCE.txt
-          goopdl download net.toyknight.aeii.android --splits --extras -o google-play 2>&1 | tee google-play/download-log.txt
+          if [[ -z "${GOOPDL_ACCOUNT_EMAIL:-}" && -z "${GOOPDL_AAS_TOKEN:-}" ]]; then
+            unset GOOPDL_ACCOUNT_EMAIL GOOPDL_AAS_TOKEN
+          fi
+          goopdl download net.toyknight.aeii.android --splits --extras -o google-play
           find google-play -type f -name '*.apk' -print | grep -q . || { echo "::error::Google Play did not return an APK."; exit 1; }
 
       - name: Check version, package ID, signing certificate and checksums
@@ -58,7 +61,6 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t apks < <(find google-play -type f -name '*.apk' | sort)
-          mapfile -t bins < <(find google-play -type f \( -name '*.apk' -o -name '*.obb' \) | sort)
           (cd google-play && find . -type f \( -name '*.apk' -o -name '*.obb' \) -print0 | sort -z | xargs -0 sha256sum) > google-play/CHECKSUMS.sha256
           AAPT="$(find "${ANDROID_HOME}/build-tools" -type f -name aapt | sort -V | tail -n 1)"
           APKSIGNER="$(find "${ANDROID_HOME}/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
