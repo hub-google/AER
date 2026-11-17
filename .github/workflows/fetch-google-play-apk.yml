@@ -1,0 +1,83 @@
+name: Fetch official AER APK from Google Play
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/fetch-google-play-apk.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Google Play downloader
+        run: python -m pip install --disable-pip-version-check goopdl==2.0.2
+
+      - name: Download original package from Google Play
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p google-play
+          timeout 180s goopdl latest net.toyknight.aeii.android > google-play/latest-query.txt 2>&1 || echo "Latest discovery did not complete; direct Play download is authoritative for the selected device." >> google-play/latest-query.txt
+          timeout 600s goopdl download net.toyknight.aeii.android --splits --extras -o google-play 2>&1 | tee google-play/download-log.txt
+          find google-play -type f -name '*.apk' -print | grep -q . || { echo "Google Play did not return an APK"; exit 1; }
+
+      - name: Verify package identity, signer and SHA-256
+        shell: bash
+        run: |
+          set -euo pipefail
+          find google-play -type f \( -iname '*.apk' -o -iname '*.obb' \) -print0 | sort -z | xargs -0 sha256sum > google-play/CHECKSUMS.sha256
+          AAPT="$(find "${ANDROID_HOME}/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          APKSIGNER="$(find "${ANDROID_HOME}/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          : > google-play/PACKAGE-IDENTITY.txt
+          : > google-play/SIGNATURES.txt
+          found=0
+          while IFS= read -r -d '' apk; do
+            {
+              printf '\n== %s ==\n' "$apk"
+              "$AAPT" dump badging "$apk" | grep '^package:' | head -n 1
+            } >> google-play/PACKAGE-IDENTITY.txt
+            if "$AAPT" dump badging "$apk" | grep -q "package: name='net.toyknight.aeii.android'"; then
+              found=1
+            fi
+            {
+              printf '\n== %s ==\n' "$apk"
+              "$APKSIGNER" verify --print-certs "$apk"
+            } >> google-play/SIGNATURES.txt
+          done < <(find google-play -type f -name '*.apk' -print0)
+          test "$found" -eq 1 || { echo "Unexpected package ID"; exit 1; }
+          cat google-play/PACKAGE-IDENTITY.txt
+          cat google-play/CHECKSUMS.sha256
+
+      - name: Include upstream GPL license
+        shell: bash
+        run: |
+          curl -fLsS --retry 2 https://raw.githubusercontent.com/AncientTree/project_aeii/master/LICENCE -o google-play/UPSTREAM-LICENCE.txt
+
+      - name: Commit APK and verification files to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add google-play
+          if ! git diff --cached --quiet; then
+            git commit -m "Add verified Google Play AER Android APK"
+            git push origin HEAD:main
+          else
+            echo "No changes"
+          fi
