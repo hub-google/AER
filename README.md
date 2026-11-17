@@ -23,3 +23,14 @@ Never commit Google login credentials, session tokens, or secret values to this 
 ## Licensing
 
 The [historical AER source project](https://github.com/AncientTree/project_aeii) publishes GPL-3.0 code and says its bundled assets can be used; this does not automatically establish identical redistribution terms for newer Play builds. Check redistribution rights before publicly publishing an APK.
+
+## Fallback: authorized Play session (when anonymous download returns HTTP 403)
+
+The [workflow](.github/workflows/fetch-google-play-apk.yml) now supports a Google Play authorization session through **GitHub Actions secrets** without storing credentials in source code.
+
+1. Use an **isolated throwaway Google account**, not your main account. The unofficial Google Play client may trigger Google account restrictions.
+2. On your own trusted machine, use the [official goopdl authentication guide](https://github.com/Villoh/goopdl/blob/main/docs/authentication.md) and `goopdl auth login --print` to obtain an account-specific AAS token. Never send account credentials or tokens via a public message.
+3. In [AER repository Actions secrets](https://github.com/hub-google/AER/settings/secrets/actions), create both `GOOPDL_ACCOUNT_EMAIL` and `GOOPDL_AAS_TOKEN`. The token must begin with `aas_et/`.
+4. From [Actions](https://github.com/hub-google/AER/actions/workflows/fetch-google-play-apk.yml), choose **Run workflow**. If it downloads an APK with package `net.toyknight.aeii.android` and versionCode >= 5210, the workflow verifies the APK and adds binary, signature metadata, and SHA-256 to `google-play/`.
+
+This is a contingency, **not a completed download**. Credentials cannot be supplied by the GitHub connector; do not share them in this chat. The downloader's account authentication is unofficial, can fail or trigger Google Play restrictions. There are no further periodic retry workflows configured.
